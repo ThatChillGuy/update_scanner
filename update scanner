@@ -1,0 +1,567 @@
+#!/usr/bin/env python3
+import os
+import sys
+import winreg
+import subprocess
+import re
+import tkinter as tk
+from tkinter import ttk, scrolledtext
+import threading
+import requests
+import json
+from datetime import datetime
+import random
+
+class SoftwareInfo:
+    """Class to store information about installed software"""
+    def __init__(self, name, version, publisher, install_location=None):
+        self.name = name
+        self.version = version
+        self.publisher = publisher
+        self.install_location = install_location
+        self.update_available = False
+        self.latest_version = None
+        self.update_url = None
+
+class DriverInfo:
+    """Class to store information about installed drivers"""
+    def __init__(self, name, version, provider):
+        self.name = name
+        self.version = version
+        self.provider = provider
+        self.update_available = False
+        self.latest_version = None
+        self.update_url = None
+
+class UpdateScanner:
+    """Main class for the Update Scanner application"""
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Ultimate System & Software Update Scanner")
+        self.root.geometry("900x600")
+        self.root.minsize(800, 500)
+        
+        # Set up the main frame
+        self.main_frame = ttk.Frame(root, padding="10")
+        self.main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Create header
+        header_frame = ttk.Frame(self.main_frame)
+        header_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(header_frame, text="Ultimate System & Software Update Scanner", 
+                 font=("Arial", 16, "bold")).pack(side=tk.LEFT)
+        
+        # Create scan button
+        self.scan_button = ttk.Button(header_frame, text="Scan for Updates", command=self.start_scan)
+        self.scan_button.pack(side=tk.RIGHT)
+        
+        # Create progress bar
+        self.progress_frame = ttk.Frame(self.main_frame)
+        self.progress_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        self.progress_label = ttk.Label(self.progress_frame, text="Ready to scan")
+        self.progress_label.pack(side=tk.LEFT)
+        
+        self.progress_bar = ttk.Progressbar(self.progress_frame, orient=tk.HORIZONTAL, length=100, mode='determinate')
+        self.progress_bar.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(10, 0))
+        
+        # Create notebook for different sections
+        self.notebook = ttk.Notebook(self.main_frame)
+        self.notebook.pack(fill=tk.BOTH, expand=True)
+        
+        # Software tab
+        self.software_frame = ttk.Frame(self.notebook, padding="10")
+        self.notebook.add(self.software_frame, text="Software")
+        
+        # Software treeview
+        self.software_tree = ttk.Treeview(self.software_frame, columns=("Name", "Current Version", "Latest Version", "Status"))
+        self.software_tree.heading("#0", text="")
+        self.software_tree.heading("Name", text="Name")
+        self.software_tree.heading("Current Version", text="Current Version")
+        self.software_tree.heading("Latest Version", text="Latest Version")
+        self.software_tree.heading("Status", text="Status")
+        
+        self.software_tree.column("#0", width=0, stretch=tk.NO)
+        self.software_tree.column("Name", width=250)
+        self.software_tree.column("Current Version", width=150)
+        self.software_tree.column("Latest Version", width=150)
+        self.software_tree.column("Status", width=150)
+        
+        # Add scrollbar to software treeview
+        software_scrollbar = ttk.Scrollbar(self.software_frame, orient=tk.VERTICAL, command=self.software_tree.yview)
+        self.software_tree.configure(yscrollcommand=software_scrollbar.set)
+        
+        software_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.software_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # Drivers tab
+        self.drivers_frame = ttk.Frame(self.notebook, padding="10")
+        self.notebook.add(self.drivers_frame, text="Drivers")
+        
+        # Drivers treeview
+        self.drivers_tree = ttk.Treeview(self.drivers_frame, columns=("Name", "Current Version", "Latest Version", "Status"))
+        self.drivers_tree.heading("#0", text="")
+        self.drivers_tree.heading("Name", text="Name")
+        self.drivers_tree.heading("Current Version", text="Current Version")
+        self.drivers_tree.heading("Latest Version", text="Latest Version")
+        self.drivers_tree.heading("Status", text="Status")
+        
+        self.drivers_tree.column("#0", width=0, stretch=tk.NO)
+        self.drivers_tree.column("Name", width=250)
+        self.drivers_tree.column("Current Version", width=150)
+        self.drivers_tree.column("Latest Version", width=150)
+        self.drivers_tree.column("Status", width=150)
+        
+        # Add scrollbar to drivers treeview
+        drivers_scrollbar = ttk.Scrollbar(self.drivers_frame, orient=tk.VERTICAL, command=self.drivers_tree.yview)
+        self.drivers_tree.configure(yscrollcommand=drivers_scrollbar.set)
+        
+        drivers_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.drivers_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # Log tab
+        self.log_frame = ttk.Frame(self.notebook, padding="10")
+        self.notebook.add(self.log_frame, text="Log")
+        
+        # Log text area
+        self.log_text = scrolledtext.ScrolledText(self.log_frame, wrap=tk.WORD)
+        self.log_text.pack(fill=tk.BOTH, expand=True)
+        
+        # Status bar
+        self.status_bar = ttk.Label(self.main_frame, text="Ready", relief=tk.SUNKEN, anchor=tk.W)
+        self.status_bar.pack(fill=tk.X, side=tk.BOTTOM, pady=(5, 0))
+        
+        # Initialize data structures
+        self.software_list = []
+        self.driver_list = []
+        
+        # Initialize sorting variables
+        self.software_sort_column = "Name"
+        self.software_sort_reverse = False
+        self.drivers_sort_column = "Name"
+        self.drivers_sort_reverse = False
+        
+        # Bind double-click event to open update URL
+        self.software_tree.bind("<Double-1>", self.open_update_url)
+        self.drivers_tree.bind("<Double-1>", self.open_update_url)
+        
+        # Bind column header click events for sorting
+        for col in ("Name", "Current Version", "Latest Version", "Status"):
+            self.software_tree.heading(col, command=lambda _col=col: self.sort_treeview(self.software_tree, _col, "software"))
+            self.drivers_tree.heading(col, command=lambda _col=col: self.sort_treeview(self.drivers_tree, _col, "drivers"))
+        
+        # Log initial message
+        self.log("Update Scanner initialized")
+    
+    def log(self, message):
+        """Add a message to the log with timestamp"""
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_entry = f"[{timestamp}] {message}\n"
+        self.log_text.insert(tk.END, log_entry)
+        self.log_text.see(tk.END)
+        
+    def update_status(self, message):
+        """Update the status bar and progress label"""
+        self.status_bar.config(text=message)
+        self.progress_label.config(text=message)
+        self.root.update_idletasks()
+    
+    def start_scan(self):
+        """Start the scanning process in a separate thread"""
+        self.scan_button.config(state=tk.DISABLED)
+        self.progress_bar["value"] = 0
+        self.update_status("Starting scan...")
+        
+        # Clear previous results
+        for item in self.software_tree.get_children():
+            self.software_tree.delete(item)
+        for item in self.drivers_tree.get_children():
+            self.drivers_tree.delete(item)
+        
+        self.software_list = []
+        self.driver_list = []
+        
+        # Start scanning in a separate thread
+        threading.Thread(target=self.perform_scan, daemon=True).start()
+    
+    def perform_scan(self):
+        """Perform the actual scanning process"""
+        try:
+            # Scan for installed software
+            self.update_status("Scanning for installed software...")
+            self.log("Scanning for installed software...")
+            self.progress_bar["value"] = 20
+            self.software_list = self.get_installed_software()
+            
+            # Update progress
+            self.update_status(f"Found {len(self.software_list)} installed software packages")
+            self.log(f"Found {len(self.software_list)} installed software packages")
+            self.progress_bar["value"] = 40
+            
+            # Scan for installed drivers
+            self.update_status("Scanning for installed drivers...")
+            self.log("Scanning for installed drivers...")
+            self.progress_bar["value"] = 60
+            self.driver_list = self.get_installed_drivers()
+            
+            # Update progress
+            self.update_status(f"Found {len(self.driver_list)} installed drivers")
+            self.log(f"Found {len(self.driver_list)} installed drivers")
+            self.progress_bar["value"] = 70
+            
+            # Check for software updates
+            self.update_status("Checking for software updates...")
+            self.log("Checking for software updates...")
+            self.progress_bar["value"] = 80
+            self.check_software_updates()
+            
+            # Check for driver updates
+            self.update_status("Checking for driver updates...")
+            self.log("Checking for driver updates...")
+            self.progress_bar["value"] = 90
+            self.check_driver_updates()
+            
+            # Display results
+            self.update_status("Displaying results...")
+            self.log("Displaying results...")
+            self.progress_bar["value"] = 95
+            self.display_results()
+            
+            # Scan complete
+            self.update_status("Scan complete")
+            self.log("Scan complete")
+            self.progress_bar["value"] = 100
+            
+        except Exception as e:
+            self.log(f"Error during scan: {str(e)}")
+            self.update_status(f"Error: {str(e)}")
+        
+        finally:
+            self.scan_button.config(state=tk.NORMAL)
+    
+    def get_installed_software(self):
+        """Get a list of installed software from the Windows registry"""
+        software_list = []
+        
+        # Registry paths to check for installed software
+        registry_paths = [
+            (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+            (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
+            (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall")
+        ]
+        
+        for reg_root, reg_path in registry_paths:
+            try:
+                registry_key = winreg.OpenKey(reg_root, reg_path)
+                
+                for i in range(winreg.QueryInfoKey(registry_key)[0]):
+                    try:
+                        subkey_name = winreg.EnumKey(registry_key, i)
+                        subkey = winreg.OpenKey(registry_key, subkey_name)
+                        
+                        try:
+                            software_name = winreg.QueryValueEx(subkey, "DisplayName")[0]
+                            
+                            # Skip entries without a display name
+                            if not software_name:
+                                continue
+                            
+                            # Get software version
+                            try:
+                                software_version = winreg.QueryValueEx(subkey, "DisplayVersion")[0]
+                            except:
+                                software_version = "Unknown"
+                            
+                            # Get publisher
+                            try:
+                                publisher = winreg.QueryValueEx(subkey, "Publisher")[0]
+                            except:
+                                publisher = "Unknown"
+                            
+                            # Get install location
+                            try:
+                                install_location = winreg.QueryValueEx(subkey, "InstallLocation")[0]
+                            except:
+                                install_location = None
+                            
+                            # Create SoftwareInfo object and add to list
+                            software = SoftwareInfo(software_name, software_version, publisher, install_location)
+                            software_list.append(software)
+                            
+                            # Log found software
+                            self.log(f"Found software: {software_name} ({software_version})")
+                            
+                        except (WindowsError, ValueError):
+                            # Skip entries that don't have the required values
+                            continue
+                        
+                        finally:
+                            winreg.CloseKey(subkey)
+                    
+                    except WindowsError:
+                        continue
+                
+                winreg.CloseKey(registry_key)
+            
+            except WindowsError:
+                self.log(f"Error accessing registry path: {reg_path}")
+        
+        return software_list
+    
+    def get_installed_drivers(self):
+        """Get a list of installed drivers using WMI"""
+        driver_list = []
+        
+        try:
+            # Use PowerShell to get driver information
+            command = "powershell -Command \"Get-WmiObject Win32_PnPSignedDriver | Select-Object DeviceName, DriverVersion, Manufacturer | ConvertTo-Json\""
+            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+            stdout, stderr = process.communicate()
+            
+            if stderr:
+                self.log(f"Error getting driver information: {stderr.decode('utf-8')}")
+                return driver_list
+            
+            # Parse JSON output
+            drivers_data = json.loads(stdout.decode('utf-8'))
+            
+            # Handle case where only one driver is returned (not in a list)
+            if not isinstance(drivers_data, list):
+                drivers_data = [drivers_data]
+            
+            for driver in drivers_data:
+                if driver.get("DeviceName"):
+                    name = driver.get("DeviceName", "Unknown")
+                    version = driver.get("DriverVersion", "Unknown")
+                    provider = driver.get("Manufacturer", "Unknown")
+                    
+                    driver_info = DriverInfo(name, version, provider)
+                    driver_list.append(driver_info)
+                    
+                    # Log found driver
+                    self.log(f"Found driver: {name} ({version})")
+        
+        except Exception as e:
+            self.log(f"Error getting driver information: {str(e)}")
+        
+        return driver_list
+    
+    
+    def check_software_updates(self):
+        """Check for updates for installed software"""
+        # This is a simplified implementation
+        # In a real-world scenario, you would need to implement specific checks for different software
+        
+        for software in self.software_list:
+            try:
+                # Simulate checking for updates
+                # In a real implementation, you would need to check with the software's update API
+                
+                # For demonstration purposes, we'll mark some software as having updates
+                if "Microsoft" in software.name:
+                    # Check Microsoft software using PowerShell
+                    self.log(f"Checking for updates for {software.name}...")
+                    
+                    # Simulate finding an update
+                    if random.random() < 0.3:  # 30% chance of having an update
+                        software.update_available = True
+                        software.latest_version = self.increment_version(software.version)
+                        software.update_url = "https://www.microsoft.com/en-us/software-download/"
+                        self.log(f"Update available for {software.name}: {software.latest_version}")
+                
+                elif "Adobe" in software.name:
+                    # Check Adobe software
+                    self.log(f"Checking for updates for {software.name}...")
+                    
+                    # Simulate finding an update
+                    if random.random() < 0.4:  # 40% chance of having an update
+                        software.update_available = True
+                        software.latest_version = self.increment_version(software.version)
+                        software.update_url = "https://www.adobe.com/downloads.html"
+                        self.log(f"Update available for {software.name}: {software.latest_version}")
+                
+                # Add more specific checks for other software
+                
+            except Exception as e:
+                self.log(f"Error checking for updates for {software.name}: {str(e)}")
+    
+    def check_driver_updates(self):
+        """Check for updates for installed drivers"""
+        # This is a simplified implementation
+        # In a real-world scenario, you would need to implement specific checks for different drivers
+        
+        for driver in self.driver_list:
+            try:
+                # Simulate checking for updates
+                # In a real implementation, you would need to check with the manufacturer's website or API
+                
+                # For demonstration purposes, we'll mark some drivers as having updates
+                if "NVIDIA" in driver.name or "NVIDIA" in driver.provider:
+                    # Check NVIDIA drivers
+                    self.log(f"Checking for updates for {driver.name}...")
+                    
+                    # Simulate finding an update
+                    if random.random() < 0.3:  # 30% chance of having an update
+                        driver.update_available = True
+                        driver.latest_version = self.increment_version(driver.version)
+                        driver.update_url = "https://www.nvidia.com/Download/index.aspx"
+                        self.log(f"Update available for {driver.name}: {driver.latest_version}")
+                
+                elif "Intel" in driver.name or "Intel" in driver.provider:
+                    # Check Intel drivers
+                    self.log(f"Checking for updates for {driver.name}...")
+                    
+                    # Simulate finding an update
+                    if random.random() < 0.3:  # 30% chance of having an update
+                        driver.update_available = True
+                        driver.latest_version = self.increment_version(driver.version)
+                        driver.update_url = "https://www.intel.com/content/www/us/en/download-center/home.html"
+                        self.log(f"Update available for {driver.name}: {driver.latest_version}")
+                
+                # Add more specific checks for other drivers
+                
+            except Exception as e:
+                self.log(f"Error checking for updates for {driver.name}: {str(e)}")
+    
+    
+    def increment_version(self, version):
+        """Increment the version number for demonstration purposes"""
+        try:
+            # Try to parse the version string
+            version_parts = re.findall(r'\d+', version)
+            if not version_parts:
+                return f"{version} (New)"
+            
+            # Increment the last part of the version
+            version_parts[-1] = str(int(version_parts[-1]) + 1)
+            
+            # Reconstruct the version string
+            new_version = '.'.join(version_parts)
+            return new_version
+        
+        except Exception:
+            return f"{version} (New)"
+    
+    def sort_treeview(self, tree, column, tree_type):
+        """Sort treeview contents when a column header is clicked"""
+        if tree_type == "software":
+            if self.software_sort_column == column:
+                # If already sorting by this column, reverse the sort direction
+                self.software_sort_reverse = not self.software_sort_reverse
+            else:
+                # Otherwise, sort by the new column in ascending order
+                self.software_sort_column = column
+                self.software_sort_reverse = False
+        else:  # drivers
+            if self.drivers_sort_column == column:
+                # If already sorting by this column, reverse the sort direction
+                self.drivers_sort_reverse = not self.drivers_sort_reverse
+            else:
+                # Otherwise, sort by the new column in ascending order
+                self.drivers_sort_column = column
+                self.drivers_sort_reverse = False
+        
+        # Get all items in the treeview
+        items = [(tree.set(item, column), item) for item in tree.get_children('')]
+        
+        # Sort the items
+        items.sort(reverse=tree_type == "software" and self.software_sort_reverse or 
+                          tree_type == "drivers" and self.drivers_sort_reverse)
+        
+        # Rearrange items in the sorted order
+        for index, (_, item) in enumerate(items):
+            tree.move(item, '', index)
+        
+        # Update the heading to show the sort direction
+        for col in ("Name", "Current Version", "Latest Version", "Status"):
+            if tree_type == "software":
+                direction = " ↑" if col == column and not self.software_sort_reverse else " ↓" if col == column else ""
+                tree.heading(col, text=f"{col}{direction}")
+            else:  # drivers
+                direction = " ↑" if col == column and not self.drivers_sort_reverse else " ↓" if col == column else ""
+                tree.heading(col, text=f"{col}{direction}")
+        
+        # Log the sort action
+        self.log(f"Sorted {tree_type} by {column} in {'ascending' if tree_type == 'software' and not self.software_sort_reverse or tree_type == 'drivers' and not self.drivers_sort_reverse else 'descending'} order")
+    
+    def display_results(self):
+        """Display the scan results in the GUI"""
+        # Display software results
+        for i, software in enumerate(self.software_list):
+            status = "Update Available" if software.update_available else "Up to Date"
+            latest_version = software.latest_version if software.update_available else software.version
+            
+            self.software_tree.insert("", tk.END, text="", values=(
+                software.name,
+                software.version,
+                latest_version,
+                status
+            ), tags=("update" if software.update_available else "ok",))
+        
+        # Display driver results
+        for i, driver in enumerate(self.driver_list):
+            status = "Update Available" if driver.update_available else "Up to Date"
+            latest_version = driver.latest_version if driver.update_available else driver.version
+            
+            self.drivers_tree.insert("", tk.END, text="", values=(
+                driver.name,
+                driver.version,
+                latest_version,
+                status
+            ), tags=("update" if driver.update_available else "ok",))
+        
+        # Sort the results using the current sort settings
+        self.sort_treeview(self.software_tree, self.software_sort_column, "software")
+        self.sort_treeview(self.drivers_tree, self.drivers_sort_column, "drivers")
+        
+        # Configure tag colors
+        self.software_tree.tag_configure("update", background="#FFCCCC")
+        self.software_tree.tag_configure("ok", background="#CCFFCC")
+        self.drivers_tree.tag_configure("update", background="#FFCCCC")
+        self.drivers_tree.tag_configure("ok", background="#CCFFCC")
+    
+    def open_update_url(self, event):
+        """Open the update URL when a row is double-clicked"""
+        # Get the selected item
+        if event.widget == self.software_tree:
+            selection = self.software_tree.selection()
+            if selection:
+                # Get the name of the selected software
+                selected_name = self.software_tree.item(selection[0], "values")[0]
+                
+                # Find the corresponding software in the list
+                for software in self.software_list:
+                    if software.name == selected_name and software.update_available:
+                        url = software.update_url
+                        if url:
+                            self.log(f"Opening URL: {url}")
+                            os.system(f'start "" "{url}"')
+                            break
+        
+        elif event.widget == self.drivers_tree:
+            selection = self.drivers_tree.selection()
+            if selection:
+                # Get the name of the selected driver
+                selected_name = self.drivers_tree.item(selection[0], "values")[0]
+                
+                # Find the corresponding driver in the list
+                for driver in self.driver_list:
+                    if driver.name == selected_name and driver.update_available:
+                        url = driver.update_url
+                        if url:
+                            self.log(f"Opening URL: {url}")
+                            os.system(f'start "" "{url}"')
+                            break
+
+def main():
+    """Main function to start the application"""
+    # Import random here to avoid global import
+    import random
+    
+    root = tk.Tk()
+    app = UpdateScanner(root)
+    root.mainloop()
+
+if __name__ == "__main__":
+    main()
