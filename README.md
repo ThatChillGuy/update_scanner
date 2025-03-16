@@ -44,9 +44,9 @@ A comprehensive Windows utility that scans your system for software and driver u
 
 ## Quick Start
 
-1. Double-click the `run_update_scanner.bat` file
-2. Click the "Scan for Updates" button
-3. Review the results and update your software as needed
+
+1. Click the "Scan for Updates" button
+2. Review the results and update your software as needed
 
 ## Installation
 
