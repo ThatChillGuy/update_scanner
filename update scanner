@@ -12,6 +12,8 @@ import json
 from datetime import datetime
 import random
 from packaging import version
+import urllib.parse
+import xml.etree.ElementTree as ET
 
 class SoftwareInfo:
     """Class to store information about installed software"""
@@ -39,6 +41,28 @@ class UpdateScanner:
     """Main class for the Update Scanner application"""
     def __init__(self, root):
         self.root = root
+        self.test_mode = (root is None)
+        
+        # Create a file for logging output
+        self.output_file = open("update_scanner_output.txt", "w")
+        self.log_to_file("Update Scanner started")
+        
+        # Initialize data structures (needed in both GUI and test mode)
+        self.software_list = []
+        self.driver_list = []
+        
+        # Initialize sorting variables
+        self.software_sort_column = "Name"
+        self.software_sort_reverse = False
+        self.drivers_sort_column = "Name"
+        self.drivers_sort_reverse = False
+        
+        # Skip GUI setup in test mode
+        if self.test_mode:
+            self.log_to_file("Running in test mode - GUI disabled")
+            return
+            
+        # GUI setup (only when not in test mode)
         self.root.title("Ultimate System & Software Update Scanner")
         self.root.geometry("900x600")
         self.root.minsize(800, 500)
@@ -156,12 +180,23 @@ class UpdateScanner:
         # Log initial message
         self.log("Update Scanner initialized")
     
+    def log_to_file(self, message):
+        """Log a message to the output file"""
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_entry = f"[{timestamp}] {message}\n"
+        self.output_file.write(log_entry)
+        self.output_file.flush()  # Ensure it's written immediately
+        
     def log(self, message):
         """Add a message to the log with timestamp"""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         log_entry = f"[{timestamp}] {message}\n"
-        self.log_text.insert(tk.END, log_entry)
-        self.log_text.see(tk.END)
+        if hasattr(self, 'log_text'):
+            self.log_text.insert(tk.END, log_entry)
+            self.log_text.see(tk.END)
+        
+        # Also log to file
+        self.log_to_file(message)
         
     def update_status(self, message):
         """Update the status bar and progress label"""
@@ -389,7 +424,7 @@ class UpdateScanner:
         
         try:
             # Use PowerShell to get driver information
-            command = "powershell -Command \"Get-WmiObject Win32_PnPSignedDriver | Select-Object DeviceName, DriverVersion, Manufacturer | ConvertTo-Json\""
+            command = "powershell -ExecutionPolicy Bypass -Command \"Get-WmiObject Win32_PnPSignedDriver | Select-Object DeviceName, DriverVersion, Manufacturer | ConvertTo-Json\""
             process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
             stdout, stderr = process.communicate()
             
@@ -496,12 +531,183 @@ class UpdateScanner:
                 except Exception as e:
                     self.log(f"Error checking GitHub updates for {software.name}: {str(e)}")
     
+    def check_chocolatey_updates(self):
+        """Check for updates using the Chocolatey API"""
+        self.log("Checking for updates from Chocolatey repository...")
+        self.log_to_file("=== CHOCOLATEY API UPDATE CHECK ===")
+        
+        # Common package IDs for popular Windows software
+        package_mappings = {
+            "7-Zip": "7zip",
+            "VLC": "vlc",
+            "Notepad++": "notepadplusplus",
+            "Firefox": "firefox",
+            "Google Chrome": "googlechrome",
+            "Chrome": "googlechrome",
+            "Git": "git",
+            "Python": "python",
+            "Visual Studio Code": "vscode",
+            "VS Code": "vscode",
+            "PuTTY": "putty",
+            "WinRAR": "winrar",
+            "Adobe Reader": "adobereader",
+            "TeamViewer": "teamviewer",
+            "Skype": "skype",
+            "Zoom": "zoom",
+            "Discord": "discord",
+            "Steam": "steam",
+            "Audacity": "audacity",
+            "GIMP": "gimp",
+            "Inkscape": "inkscape",
+            "FileZilla": "filezilla",
+            "WinSCP": "winscp",
+            "Thunderbird": "thunderbird",
+            "LibreOffice": "libreoffice",
+            "OpenOffice": "openoffice",
+            "CCleaner": "ccleaner",
+            "Malwarebytes": "malwarebytes",
+            "Avast": "avast",
+            "AVG": "avg",
+            "Dropbox": "dropbox",
+            "Google Drive": "googledrive"
+        }
+        
+        # Check each software in our list (only installed software)
+        for software in self.software_list:
+            try:
+                # Check if this software matches any known package
+                package_id = None
+                matched_name = None
+                
+                # Try to find a match in our package mappings
+                for software_name, choco_id in package_mappings.items():
+                    if software_name.lower() in software.name.lower():
+                        package_id = choco_id
+                        matched_name = software_name
+                        break
+                
+                # If no match found, try a simplified name
+                if not package_id:
+                    # Try to simplify the software name (remove version numbers, etc.)
+                    simplified_name = re.sub(r'\s*\d+.*$', '', software.name).strip()
+                    simplified_name = re.sub(r'\s*\(.*\)$', '', simplified_name).strip()
+                    
+                    # Check if the simplified name matches any known package
+                    for software_name, choco_id in package_mappings.items():
+                        if software_name.lower() in simplified_name.lower():
+                            package_id = choco_id
+                            matched_name = software_name
+                            break
+                
+                # If still no match, try using the software name directly
+                if not package_id:
+                    # Create a package ID from the software name
+                    direct_id = software.name.lower().replace(' ', '')
+                    direct_id = re.sub(r'[^a-z0-9]', '', direct_id)
+                    
+                    if direct_id:
+                        package_id = direct_id
+                        matched_name = software.name
+                
+                # Skip if we couldn't determine a package ID
+                if not package_id:
+                    continue
+                
+                self.log(f"Checking Chocolatey for updates for {software.name}...")
+                
+                # Use the FindPackagesById endpoint
+                url = f"https://community.chocolatey.org/api/v2/FindPackagesById()?id='{urllib.parse.quote(package_id)}'"
+                
+                # Make the request
+                response = requests.get(url)
+                
+                # Check if the request was successful
+                if response.status_code == 200:
+                    try:
+                        # Parse XML response
+                        content = response.text
+                        root = ET.fromstring(content)
+                        
+                        # Find all entry elements
+                        entries = root.findall('.//{http://www.w3.org/2005/Atom}entry')
+                        
+                        if entries:
+                            # Get the latest version by sorting entries
+                            latest_version_str = "0.0.0"
+                            latest_version_full = ""
+                            package_title = ""
+                            
+                            for entry in entries:
+                                # Extract package properties
+                                properties = entry.find('.//{http://schemas.microsoft.com/ado/2007/08/dataservices/metadata}properties')
+                                
+                                if properties is not None:
+                                    # Look for Version element
+                                    for prop in properties:
+                                        if prop.tag.endswith('Version'):
+                                            version_text = prop.text
+                                            # Clean up version string for comparison
+                                            clean_version = re.sub(r'[^0-9.]', '', version_text)
+                                            if not clean_version:
+                                                clean_version = "0.0.0"
+                                                
+                                            # Compare versions
+                                            try:
+                                                if version.parse(clean_version) > version.parse(latest_version_str):
+                                                    latest_version_str = clean_version
+                                                    latest_version_full = version_text
+                                            except:
+                                                pass
+                                        
+                                        # Get package title for URL
+                                        if prop.tag.endswith('Title'):
+                                            package_title = prop.text
+                            
+                            if latest_version_full:
+                                # Clean up version strings for comparison
+                                current_version = re.sub(r'[^0-9.]', '', software.version)
+                                if not current_version:
+                                    current_version = "0.0.0"
+                                
+                                # Compare versions
+                                try:
+                                    if version.parse(latest_version_str) > version.parse(current_version):
+                                        software.update_available = True
+                                        software.latest_version = latest_version_full
+                                        software.update_url = f"https://community.chocolatey.org/packages/{package_id}/{latest_version_full}"
+                                        self.log(f"Update available for {software.name}: {latest_version_full} (Chocolatey)")
+                                        self.log_to_file(f"CHOCOLATEY UPDATE: {software.name} - Current: {software.version}, Latest: {latest_version_full}")
+                                    else:
+                                        self.log(f"No update available for {software.name} from Chocolatey (current: {software.version}, latest: {latest_version_full})")
+                                        self.log_to_file(f"CHOCOLATEY UP-TO-DATE: {software.name} - Version: {software.version}")
+                                except Exception as e:
+                                    self.log(f"Error comparing versions for {software.name} from Chocolatey: {str(e)}")
+                            else:
+                                self.log(f"Could not determine latest version for {software.name} from Chocolatey")
+                        else:
+                            self.log(f"Check Failed: No package found for {software.name} in Chocolatey repository")
+                            self.log_to_file(f"CHOCOLATEY CHECK FAILED: No package found for {software.name}")
+                    except Exception as e:
+                        self.log(f"Error parsing Chocolatey response for {software.name}: {str(e)}")
+                else:
+                    self.log(f"Check Failed: Error checking Chocolatey for {software.name}: {response.status_code}")
+            
+            except Exception as e:
+                self.log(f"Error checking Chocolatey updates for {software.name}: {str(e)}")
+    
     def check_software_updates(self):
         """Check for updates for installed software"""
         # This is a simplified implementation
         # In a real-world scenario, you would need to implement specific checks for different software
         
+        # First check with Chocolatey API
+        self.check_chocolatey_updates()
+        
         for software in self.software_list:
+            # Skip software that already has updates from Chocolatey
+            if software.update_available:
+                continue
+                
             try:
                 # Simulate checking for updates
                 # In a real implementation, you would need to check with the software's update API
@@ -724,9 +930,25 @@ def main():
             print("Please install the packaging module manually: pip install packaging")
             print("The application will continue, but GitHub version checking may not work correctly.")
     
+    # Check for test mode
+    if len(sys.argv) > 1 and sys.argv[1] == "--test":
+        print("Running in test mode...")
+        app = UpdateScanner(None)
+        app.log_to_file("Running in test mode")
+        app.get_installed_software()
+        app.check_software_updates()
+        app.output_file.close()
+        print("Test completed. Results written to update_scanner_output.txt")
+        sys.exit(0)
+    
+    # Normal GUI mode
     root = tk.Tk()
     app = UpdateScanner(root)
     root.mainloop()
+    
+    # Close the output file when the application exits
+    if hasattr(app, 'output_file'):
+        app.output_file.close()
 
 if __name__ == "__main__":
     main()
