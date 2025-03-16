@@ -1,34 +1,84 @@
 @echo off
 echo ===================================================
-echo Installing dependencies for Update Scanner...
+echo   Chocolatey and Dependencies Installation Script
 echo ===================================================
+echo.
 
-:: Check if Python is installed
-python --version > nul 2>&1
+REM Check if Chocolatey is already installed
+where choco >nul 2>&1
+if %errorlevel% equ 0 (
+    echo Chocolatey is already installed.
+) else (
+    echo Chocolatey is not installed. Installing Chocolatey...
+    echo.
+    
+    REM Check if running as administrator
+    net session >nul 2>&1
+    if %errorlevel% neq 0 (
+        echo This script requires administrator privileges to install Chocolatey.
+        echo Please run this script as administrator.
+        pause
+        exit /b 1
+    )
+    
+    echo Installing Chocolatey...
+    echo This may take a few minutes...
+    
+    REM Install Chocolatey using PowerShell
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))"
+    
+    if %errorlevel% neq 0 (
+        echo Failed to install Chocolatey. Please check your internet connection and try again.
+        pause
+        exit /b 1
+    )
+    
+    echo Chocolatey has been successfully installed!
+)
+
+echo.
+echo ===================================================
+echo   Installing Python Dependencies
+echo ===================================================
+echo.
+
+REM Check if Python is installed
+python --version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo Error: Python is not installed or not in PATH.
-    echo Please install Python from https://www.python.org/downloads/
-    echo Make sure to check "Add Python to PATH" during installation.
+    echo Python is not installed. Please install Python 3.6 or higher.
+    echo You can download Python from https://www.python.org/downloads/
+    echo Alternatively, you can install Python using Chocolatey by running:
+    echo   choco install python -y
     pause
     exit /b 1
 )
 
 echo Python is installed. Installing required packages...
 
-:: Install required packages
+REM Install requests package
 echo Installing requests package...
 python -m pip install requests
 
+REM Install packaging package
 echo Installing packaging package...
 python -m pip install packaging
 
-echo ===================================================
-echo Dependencies installation completed!
-echo ===================================================
-echo The following packages were installed:
-echo - requests (for HTTP requests)
-echo - packaging (for version comparison)
 echo.
-echo You can now run the Update Scanner using run_update_scanner.bat
 echo ===================================================
+echo   Installation Complete!
+echo ===================================================
+echo.
+echo The following components have been installed:
+echo - Chocolatey: Windows package manager
+echo - Python packages:
+echo   - requests: For making HTTP requests to the Chocolatey API
+echo   - packaging: For version comparison
+echo.
+echo You can now run the Update Scanner to check for updates using the Chocolatey API.
+echo You can also use Chocolatey to install and update software by running:
+echo   choco install [package-name]
+echo   choco upgrade [package-name]
+echo.
+echo For more information about Chocolatey, visit: https://chocolatey.org/
+echo.
 pause
