@@ -1,7 +1,7 @@
 # Ultimate System & Software Update Scanner
 
 [![Version: 1.0.0](https://img.shields.io/badge/Version-1.0.0-brightgreen.svg)](https://github.com/yourusername/update-scanner)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+
 [![Platform: Windows](https://img.shields.io/badge/Platform-Windows-blue.svg)](https://www.microsoft.com/windows)
 
 A comprehensive Windows utility that scans your system for software and driver updates, helping you keep your system secure and up-to-date with minimal effort.
