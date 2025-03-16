@@ -1,6 +1,8 @@
 # Ultimate System & Software Update Scanner
 
-
+[![Version: 1.0.0](https://img.shields.io/badge/Version-1.0.0-brightgreen.svg)](https://github.com/yourusername/update-scanner)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Platform: Windows](https://img.shields.io/badge/Platform-Windows-blue.svg)](https://www.microsoft.com/windows)
 
 A comprehensive Windows utility that scans your system for software and driver updates, helping you keep your system secure and up-to-date with minimal effort.
 
@@ -21,6 +23,7 @@ A comprehensive Windows utility that scans your system for software and driver u
 ## Features
 
 - **Comprehensive Software Update Detection**: Scans all installed software on your Windows system and checks for available updates
+- **GitHub API Integration**: Automatically checks GitHub repositories for the latest releases of supported software
 - **Driver Update Detection**: Identifies outdated drivers that might affect system performance and stability
 - **Clean, Intuitive Interface**: Displays results in an organized, tabbed interface for easy navigation
 - **Actionable Results**: Double-click on items with available updates to open the relevant update page or launcher
@@ -34,6 +37,7 @@ A comprehensive Windows utility that scans your system for software and driver u
 - **Required Python Packages**:
   - tkinter (usually included with Python installation)
   - requests (for network operations)
+  - packaging (for version comparison, automatically installed if missing)
 - **Permissions**: Administrative privileges required for complete system scanning
 
 ## Quick Start
@@ -90,8 +94,10 @@ The scanner uses several methods to detect installed software and drivers:
   - Checks driver version against known latest versions
 
 - **Update Checking**:
-  - For demonstration purposes, the program currently uses a simulation approach
-  - In a production environment, it would connect to vendor APIs or websites to check for the latest versions
+  - Uses the GitHub API to check for updates for software with GitHub repositories
+  - Maps installed software to known GitHub repositories for real-time update checking
+  - Compares version numbers to determine if updates are available
+  - For software without GitHub repositories, uses a simulation approach for demonstration
 
 ## Troubleshooting
 
@@ -130,7 +136,8 @@ A: No, this complements Windows Update by checking for updates to third-party so
 
 ## Future Enhancements
 
-- Implement actual update checking via vendor APIs for more accurate results
+- Expand GitHub repository mapping for more software applications
+- Add support for additional version control platforms (GitLab, Bitbucket, etc.)
 - Add automatic update functionality where possible
 - Improve detection of non-standard installations
 - Add scheduling capabilities to run scans automatically
