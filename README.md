@@ -69,11 +69,9 @@ A comprehensive Windows utility that scans your system for software and driver u
 ## Usage
 
 1. **Starting the Application**:
-   - Double-click the `run_update_scanner.bat` file to start the program
-   - Alternatively, you can run the main Python script directly if you prefer
-   - For testing or automation, you can run in test mode: `python "update scanner.py" --test`
-     - Test mode runs without GUI and outputs results to `update_scanner_output.txt`
-     - Useful for scripting or automated update checking
+   - Double-click the `the main Python script directl` file to start the program
+     
+  
 
 2. **Scanning for Updates**:
    - Click the "Scan for Updates" button to begin scanning your system
