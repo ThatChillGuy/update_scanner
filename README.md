@@ -18,7 +18,7 @@ A comprehensive Windows utility that scans your system for software and driver u
 - [FAQ](#faq)
 - [Future Enhancements](#future-enhancements)
 - [Contributing](#contributing)
-- [License](#license)
+
 
 ## Features
 
