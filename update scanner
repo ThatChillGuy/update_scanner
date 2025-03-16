@@ -11,6 +11,7 @@ import requests
 import json
 from datetime import datetime
 import random
+from packaging import version
 
 class SoftwareInfo:
     """Class to store information about installed software"""
@@ -22,6 +23,7 @@ class SoftwareInfo:
         self.update_available = False
         self.latest_version = None
         self.update_url = None
+        self.github_repo = None  # Added to store GitHub repository information
 
 class DriverInfo:
     """Class to store information about installed drivers"""
@@ -185,6 +187,75 @@ class UpdateScanner:
         # Start scanning in a separate thread
         threading.Thread(target=self.perform_scan, daemon=True).start()
     
+    def map_software_to_github_repos(self):
+        """Map installed software to GitHub repositories"""
+        # This is a mapping of software names to their GitHub repositories
+        # In a real implementation, this could be loaded from a configuration file
+        github_mappings = {
+            "Visual Studio Code": "microsoft/vscode",
+            "Node.js": "nodejs/node",
+            "Python": "python/cpython",
+            "Git": "git/git",
+            "Atom": "atom/atom",
+            "Electron": "electron/electron",
+            "React": "facebook/react",
+            "Angular": "angular/angular",
+            "Vue.js": "vuejs/vue",
+            "Docker": "docker/docker-ce",
+            "Kubernetes": "kubernetes/kubernetes",
+            "TensorFlow": "tensorflow/tensorflow",
+            "PyTorch": "pytorch/pytorch",
+            "Flutter": "flutter/flutter",
+            "Rust": "rust-lang/rust",
+            "Go": "golang/go",
+            "Swift": "apple/swift",
+            "Kotlin": "JetBrains/kotlin",
+            "TypeScript": "microsoft/typescript",
+            "Brave Browser": "brave/brave-browser",
+            "Firefox": "mozilla/gecko-dev",
+            "Chromium": "chromium/chromium",
+            "VLC": "videolan/vlc",
+            "OBS Studio": "obsproject/obs-studio",
+            "Blender": "blender/blender",
+            "GIMP": "GNOME/gimp",
+            "Inkscape": "inkscape/inkscape",
+            "Audacity": "audacity/audacity",
+            "LibreOffice": "LibreOffice/core",
+            "Thunderbird": "mozilla/thunderbird",
+            "Postman": "postmanlabs/postman-app-support",
+            "VS Code": "microsoft/vscode",  # Alternative name
+            "Visual Studio": "microsoft/visualstudio",
+            "GitHub Desktop": "desktop/desktop",
+            "GitKraken": "gitkraken/gitkraken-client",
+            "Sublime Text": "sublimehq/sublime_text",
+            "Notepad++": "notepad-plus-plus/notepad-plus-plus",
+            "7-Zip": "mcmilk/7-Zip",
+            "WinSCP": "winscp/winscp",
+            "PuTTY": "github/putty",
+            "FileZilla": "FileZilla/FileZilla",
+            "WinMerge": "WinMerge/winmerge",
+            "Wireshark": "wireshark/wireshark",
+            "VirtualBox": "virtualbox/virtualbox",
+            "VMware": "vmware/open-vm-tools",
+            "Zoom": "zoom/zoom-sdk-windows",
+            "Slack": "slackapi/slack-api-specs",
+            "Discord": "discord/discord-api-docs",
+            "Spotify": "spotify/web-api",
+            "Steam": "ValveSoftware/steam-for-linux",
+            "Epic Games": "EpicGames/UnrealEngine",
+            "Unity": "Unity-Technologies/UnityCsReference",
+            "Unreal Engine": "EpicGames/UnrealEngine",
+        }
+        
+        # Map software to GitHub repositories
+        for software in self.software_list:
+            # Check if the software name is in the mapping
+            for software_name, repo in github_mappings.items():
+                if software_name.lower() in software.name.lower():
+                    software.github_repo = repo
+                    self.log(f"Mapped {software.name} to GitHub repository: {repo}")
+                    break
+    
     def perform_scan(self):
         """Perform the actual scanning process"""
         try:
@@ -193,6 +264,9 @@ class UpdateScanner:
             self.log("Scanning for installed software...")
             self.progress_bar["value"] = 20
             self.software_list = self.get_installed_software()
+            
+            # Map software to GitHub repositories
+            self.map_software_to_github_repos()
             
             # Update progress
             self.update_status(f"Found {len(self.software_list)} installed software packages")
@@ -348,6 +422,80 @@ class UpdateScanner:
         return driver_list
     
     
+    def check_github_updates(self):
+        """Check for updates using the GitHub API"""
+        self.log("Checking for updates from GitHub repositories...")
+        
+        # GitHub API base URL
+        github_api_base = "https://api.github.com"
+        
+        # Get GitHub token from environment variable if available
+        github_token = os.environ.get("GITHUB_TOKEN", "")
+        
+        # Set up headers for GitHub API requests
+        headers = {
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "Ultimate-System-Software-Update-Scanner"
+        }
+        
+        # Add authorization header if token is available
+        if github_token:
+            headers["Authorization"] = f"token {github_token}"
+        
+        # Check each software with a mapped GitHub repository
+        for software in self.software_list:
+            if software.github_repo:
+                try:
+                    self.log(f"Checking GitHub repository {software.github_repo} for updates...")
+                    
+                    # Get the latest release from GitHub API
+                    releases_url = f"{github_api_base}/repos/{software.github_repo}/releases"
+                    response = requests.get(releases_url, headers=headers)
+                    
+                    # Check if the request was successful
+                    if response.status_code == 200:
+                        releases = response.json()
+                        
+                        # Check if there are any releases
+                        if releases:
+                            # Get the latest release
+                            latest_release = releases[0]
+                            latest_version_tag = latest_release.get("tag_name", "").lstrip("v")
+                            
+                            # Clean up version strings for comparison
+                            current_version = re.sub(r'[^0-9.]', '', software.version)
+                            latest_version = re.sub(r'[^0-9.]', '', latest_version_tag)
+                            
+                            # Try to compare versions
+                            try:
+                                # If the version strings are valid, compare them
+                                if current_version and latest_version:
+                                    if version.parse(latest_version) > version.parse(current_version):
+                                        software.update_available = True
+                                        software.latest_version = latest_version_tag
+                                        software.update_url = latest_release.get("html_url", f"https://github.com/{software.github_repo}/releases")
+                                        self.log(f"Update available for {software.name}: {software.latest_version}")
+                                    else:
+                                        self.log(f"No update available for {software.name} (current: {current_version}, latest: {latest_version})")
+                                else:
+                                    self.log(f"Could not parse version strings for {software.name}")
+                            except Exception as e:
+                                self.log(f"Error comparing versions for {software.name}: {str(e)}")
+                                
+                                # Fallback to string comparison if version parsing fails
+                                if latest_version_tag != software.version:
+                                    software.update_available = True
+                                    software.latest_version = latest_version_tag
+                                    software.update_url = latest_release.get("html_url", f"https://github.com/{software.github_repo}/releases")
+                                    self.log(f"Update may be available for {software.name}: {software.latest_version}")
+                        else:
+                            self.log(f"No releases found for {software.github_repo}")
+                    else:
+                        self.log(f"Error checking GitHub repository {software.github_repo}: {response.status_code}")
+                
+                except Exception as e:
+                    self.log(f"Error checking GitHub updates for {software.name}: {str(e)}")
+    
     def check_software_updates(self):
         """Check for updates for installed software"""
         # This is a simplified implementation
@@ -385,6 +533,9 @@ class UpdateScanner:
                 
             except Exception as e:
                 self.log(f"Error checking for updates for {software.name}: {str(e)}")
+        
+        # After checking traditional software updates, check GitHub repositories
+        self.check_github_updates()
     
     def check_driver_updates(self):
         """Check for updates for installed drivers"""
@@ -558,6 +709,20 @@ def main():
     """Main function to start the application"""
     # Import random here to avoid global import
     import random
+    
+    # Try to import packaging.version, install if not available
+    try:
+        from packaging import version
+    except ImportError:
+        try:
+            print("Installing packaging module...")
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "packaging"])
+            from packaging import version
+            print("Successfully installed packaging module.")
+        except Exception as e:
+            print(f"Error installing packaging module: {str(e)}")
+            print("Please install the packaging module manually: pip install packaging")
+            print("The application will continue, but GitHub version checking may not work correctly.")
     
     root = tk.Tk()
     app = UpdateScanner(root)
